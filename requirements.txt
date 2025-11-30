@@ -1,0 +1,36 @@
+# Core ML - CUDA 12.x (for local GPU)
+torch>=2.0.0
+torchvision>=0.15.0
+pytorch-lightning>=2.0.0
+segmentation-models-pytorch>=0.3.0
+
+# For GPU: Install PyTorch with CUDA
+# pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+
+# Data Processing
+numpy>=1.24.0
+pandas>=2.0.0
+rasterio>=1.3.0
+geopandas>=0.13.0
+shapely>=2.0.0
+
+# Image Processing
+Pillow>=10.0.0
+albumentations>=1.3.0
+
+# Visualization
+matplotlib>=3.7.0
+seaborn>=0.12.0
+tensorboard>=2.14.0
+
+# Machine Learning
+scikit-learn>=1.2.0
+einops>=0.6.0  # For Transformer operations
+
+# Utilities
+tqdm>=4.65.0
+scipy>=1.10.0
+
+# Jupyter (optional - for notebooks)
+jupyter>=1.0.0
+ipywidgets>=8.0.0
