@@ -230,18 +230,6 @@ MIT License - Feel free to use for research and applications.
 4.  **Ensemble Aggregation**: Weighted average of probability maps.
 5.  **Output**: Final Debris Mask & Visualization.
 
-### 3.2.2 Architecture Diagram
-```mermaid
-graph TD
-    Input[Sentinel-2 L2A] --> Pre[Preprocessing & Indices]
-    Pre --> Seg[UNet++ Segmentation]
-    Pre --> Class[DL Classifiers (MLP, CNN, etc.)]
-    Pre --> Rules[Spectral Rules (FDI, FAI)]
-    Seg --> Ens[Ensemble Aggregation]
-    Class --> Ens
-    Rules --> Ens
-    Ens --> Output[Debris Mask & Report]
-```
 
 ## 3.3 Data Preparation
 
@@ -307,3 +295,4 @@ def predict(self, image_path):
 3.  **Cloud Interference**: Addressed by using L2A atmospheric corrected data and cloud masking indices (NDWI).
 4.  **Model Integration**: Combining spatial (UNet++) and spectral (MLP) models. Addressed by standardizing outputs to probability maps for ensemble averaging.
 5.  **Computational Load**: Large satellite scenes. Addressed by implementing a sliding window (tiling) approach for memory-efficient inference.
+
