@@ -212,7 +212,7 @@ The RGB composite shows the coastal area near Durban, South Africa with potentia
 
 #### Detection Output
 <p align="center">
-  <img src="images/south_africa_refined_visualization.png" alt="South Africa Detection" width="800"/>
+  <img src="south_africa_refined_visualization.png" alt="South Africa Detection" width="800"/>
 </p>
 
 **Visualization Panels:**
@@ -230,7 +230,7 @@ The Motagua River (Guatemala) is a major source of plastic pollution flowing int
 
 #### Detection Output
 <p align="center">
-  <img src="images/motagua_river_plume_2020_visualization.png" alt="Motagua River Detection" width="800"/>
+  <img src="motagua_river_plume_2020_visualization.png" alt="Motagua River Detection" width="800"/>
 </p>
 
 **Key Observations:**
@@ -340,12 +340,12 @@ Debris percentage: 0.8649%
 
 ### Method Comparison Visualization
 <p align="center">
-  <img src="images/method_comparison.png" alt="Method Comparison" width="800"/>
+  <img src="method_comparison.png" alt="Method Comparison" width="800"/>
 </p>
 
 ### Overlay Comparison
 <p align="center">
-  <img src="images/overlay_comparison.png" alt="Overlay Comparison" width="800"/>
+  <img src="overlay_comparison.png" alt="Overlay Comparison" width="800"/>
 </p>
 
 ---
@@ -381,7 +381,7 @@ TP (True Positive):  Correctly identified debris pixels
 
 ### Evaluation Matrix Visualization
 <p align="center">
-  <img src="images/evaluation_matrix.png" alt="Evaluation Matrix" width="600"/>
+  <img src="evaluation_matrix.png" alt="Evaluation Matrix" width="600"/>
 </p>
 
 ### Threshold Optimization
@@ -621,3 +621,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
   <br/><br/>
   <i>"Every piece of plastic detected brings us closer to cleaner oceans"</i>
 </p>
+
