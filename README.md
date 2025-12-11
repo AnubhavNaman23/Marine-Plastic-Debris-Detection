@@ -601,7 +601,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 👥 Authors
 
-- **Anubhav** - *Development and Implementation*
+- **Anubhav, Harmandeep and Kartik** - *Development and Implementation*
 
 ---
 
@@ -621,4 +621,5 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
   <br/><br/>
   <i>"Every piece of plastic detected brings us closer to cleaner oceans"</i>
 </p>
+
 
