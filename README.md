@@ -1,7 +1,7 @@
 # 🌊 Marine Plastic Debris Detection using Deep Learning
 
 <p align="center">
-  <img src="prediction_output/motagua_river_plume_2020_visualization.png" alt="Marine Debris Detection" width="800"/>
+  <img src="images/motagua_river_plume_2020_visualization.png" alt="Marine Debris Detection" width="800"/>
 </p>
 
 ## 📋 Table of Contents
@@ -110,7 +110,7 @@ class AttentionGate(nn.Module):
 ### Setup
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/PlasticDebrisDetector.git
+git clone https://github.com/anubhav-auth/PlasticDebrisDetector.git
 cd PlasticDebrisDetector
 
 # Create virtual environment
@@ -212,7 +212,7 @@ The RGB composite shows the coastal area near Durban, South Africa with potentia
 
 #### Detection Output
 <p align="center">
-  <img src="prediction_output/south_africa_refined_visualization.png" alt="South Africa Detection" width="800"/>
+  <img src="images/south_africa_refined_visualization.png" alt="South Africa Detection" width="800"/>
 </p>
 
 **Visualization Panels:**
@@ -230,7 +230,7 @@ The Motagua River (Guatemala) is a major source of plastic pollution flowing int
 
 #### Detection Output
 <p align="center">
-  <img src="prediction_output/motagua_river_plume_2020_visualization.png" alt="Motagua River Detection" width="800"/>
+  <img src="images/motagua_river_plume_2020_visualization.png" alt="Motagua River Detection" width="800"/>
 </p>
 
 **Key Observations:**
@@ -340,12 +340,12 @@ Debris percentage: 0.8649%
 
 ### Method Comparison Visualization
 <p align="center">
-  <img src="comparison_output/method_comparison.png" alt="Method Comparison" width="800"/>
+  <img src="images/method_comparison.png" alt="Method Comparison" width="800"/>
 </p>
 
 ### Overlay Comparison
 <p align="center">
-  <img src="comparison_output/overlay_comparison.png" alt="Overlay Comparison" width="800"/>
+  <img src="images/overlay_comparison.png" alt="Overlay Comparison" width="800"/>
 </p>
 
 ---
@@ -381,7 +381,7 @@ TP (True Positive):  Correctly identified debris pixels
 
 ### Evaluation Matrix Visualization
 <p align="center">
-  <img src="prediction_output/evaluation_matrix.png" alt="Evaluation Matrix" width="600"/>
+  <img src="images/evaluation_matrix.png" alt="Evaluation Matrix" width="600"/>
 </p>
 
 ### Threshold Optimization
@@ -490,6 +490,13 @@ PlasticDebrisDetector/
 ├── 📄 config.py                   # Configuration settings
 ├── 📄 requirements.txt            # Python dependencies
 ├── 📄 README.md                   # This documentation
+│
+├── 📂 images/                     # 🖼️ README Images (for GitHub)
+│   ├── motagua_river_plume_2020_visualization.png
+│   ├── south_africa_refined_visualization.png
+│   ├── method_comparison.png
+│   ├── overlay_comparison.png
+│   └── evaluation_matrix.png
 │
 ├── 📂 models/
 │   ├── attention_unet.py          # AttentionUNet, UNetPlusPlusAttention
