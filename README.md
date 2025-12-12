@@ -44,6 +44,11 @@ This project implements a **deep learning-based system for detecting marine plas
 
 ## 🏗️ Model Architecture
 
+## 🎥 Demo Video
+
+[![Watch Demo Video](https://img.shields.io/badge/▶️_Watch_Full_Demo-Google_Drive-4285F4?style=for-the-badge&logo=googledrive&logoColor=white)](https://drive.google.com/file/d/18jGzcR0ILiA5Dcn5-10VH1kZyq7BE7IQ/view?usp=sharing)
+
+
 ### UNet++ (Nested U-Net)
 The primary model uses **UNet++** from `segmentation_models_pytorch` with nested skip connections for multi-scale feature extraction.
 
@@ -594,6 +599,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
   <br/><br/>
   <i>"Every piece of plastic detected brings us closer to cleaner oceans"</i>
 </p>
+
 
 
 
