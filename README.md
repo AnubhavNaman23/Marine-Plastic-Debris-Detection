@@ -1,8 +1,5 @@
 # 🌊 Marine Plastic Debris Detection using Deep Learning
 
-<p align="center">
-  <img src="images/motagua_river_plume_2020_visualization.png" alt="Marine Debris Detection" width="800"/>
-</p>
 
 ## 📋 Table of Contents
 - [Overview](#-overview)
@@ -50,33 +47,9 @@ This project implements a **deep learning-based system for detecting marine plas
 ### UNet++ (Nested U-Net)
 The primary model uses **UNet++** from `segmentation_models_pytorch` with nested skip connections for multi-scale feature extraction.
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                      UNet++ Architecture                     │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│    Input (12 bands) ──► HR Band Selection (4 bands)         │
-│           │                    │                            │
-│           │            [B02, B03, B04, B08]                  │
-│           │                    │                            │
-│           ▼                    ▼                            │
-│    ┌──────────┐         ┌──────────┐                       │
-│    │ Encoder  │ ──────► │ Decoder  │                       │
-│    │ ResNet34 │         │  UNet++  │                       │
-│    └──────────┘         └──────────┘                       │
-│           │                    │                            │
-│           └────► Skip ────────►│                            │
-│                Connections     │                            │
-│                                ▼                            │
-│                         ┌──────────┐                       │
-│                         │  Output  │                       │
-│                         │ Sigmoid  │                       │
-│                         └──────────┘                       │
-│                                │                            │
-│                                ▼                            │
-│                     Binary Debris Mask                      │
-└─────────────────────────────────────────────────────────────┘
-```
+<p align="center">
+  <img src="flowchart.jpg" alt="Marine Debris Detection" width="400"/>
+</p>
 
 ### Attention UNet
 Enhanced architecture with **Attention Gates** that focus on relevant debris regions:
@@ -621,5 +594,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
   <br/><br/>
   <i>"Every piece of plastic detected brings us closer to cleaner oceans"</i>
 </p>
+
 
 
