@@ -114,7 +114,7 @@ def compute_spectral_indices(bands_dict):
         Dictionary of computed indices
     """
     indices = {}
-    eps = 1e-8
+    eps = 1e-6
     
     B2 = bands_dict.get('B02', bands_dict.get('B2', None))
     B3 = bands_dict.get('B03', bands_dict.get('B3', None))
@@ -127,25 +127,25 @@ def compute_spectral_indices(bands_dict):
     
     if B8 is not None and B4 is not None:
         # NDVI - Normalized Difference Vegetation Index
-        indices['NDVI'] = (B8 - B4) / (B8 + B4 + eps)
+        indices['NDVI'] = np.nan_to_num((B8 - B4) / (B8 + B4 + eps), nan=0.0, posinf=1.0, neginf=-1.0)
         
         # Plastic Index
-        indices['PI'] = B8 / (B8 + B4 + eps)
+        indices['PI'] = np.nan_to_num(B8 / (B8 + B4 + eps), nan=0.0, posinf=1.0, neginf=-1.0)
     
     if B3 is not None and B8 is not None:
         # NDWI - Normalized Difference Water Index
-        indices['NDWI'] = (B3 - B8) / (B3 + B8 + eps)
+        indices['NDWI'] = np.nan_to_num((B3 - B8) / (B3 + B8 + eps), nan=0.0, posinf=1.0, neginf=-1.0)
     
     if B8 is not None and B11 is not None:
         # NDMI - Normalized Difference Moisture Index
-        indices['NDMI'] = (B8 - B11) / (B8 + B11 + eps)
+        indices['NDMI'] = np.nan_to_num((B8 - B11) / (B8 + B11 + eps), nan=0.0, posinf=1.0, neginf=-1.0)
     
     if B6 is not None and B8 is not None and B11 is not None:
         # FDI - Floating Debris Index
         lambda_nir = 833
         lambda_re2 = 665
         lambda_swir1 = 1610.4
-        indices['FDI'] = B8 - (B6 + (B11 - B6) * ((lambda_nir - lambda_re2) / (lambda_swir1 - lambda_re2)) * 10)
+        indices['FDI'] = np.nan_to_num(B8 - (B6 + (B11 - B6) * ((lambda_nir - lambda_re2) / (lambda_swir1 - lambda_re2)) * 10), nan=0.0, posinf=1.0, neginf=-1.0)
     
     return indices
 
@@ -155,7 +155,17 @@ def compute_spectral_indices(bands_dict):
 # ============================================================
 
 class MARIDASegmentationDataset(Dataset):
-    """MARIDA dataset for marine debris segmentation."""
+    """MARIDA dataset for marine debris segmentation.
+    
+    Handles the official MARIDA structure where each scene directory
+    (e.g. patches/S2_1-12-19_48MYU/) contains multi-band TIF files
+    (S2_1-12-19_48MYU_0.tif) and class-label masks (*_cl.tif).
+    
+    Split files list entries like '1-12-19_48MYU_0' which map to:
+      - Scene dir:  patches/S2_1-12-19_48MYU/
+      - Image file: S2_1-12-19_48MYU_0.tif   (multi-band)
+      - Mask file:  S2_1-12-19_48MYU_0_cl.tif (class labels)
+    """
     
     def __init__(self, root, split='train', transform=None, binary=True, image_size=128):
         self.root = Path(root)
@@ -164,6 +174,7 @@ class MARIDASegmentationDataset(Dataset):
         self.transform = transform
         self.binary = binary
         self.image_size = image_size
+        self.has_debris = []
         
         # Load split file
         splits_dir = self.root / 'splits'
@@ -171,80 +182,140 @@ class MARIDASegmentationDataset(Dataset):
             split_file = splits_dir / f'{split}_X.txt'
             if split_file.exists():
                 with open(split_file) as f:
-                    self.samples = [line.strip() for line in f.readlines()]
+                    self.samples = [line.strip() for line in f.readlines() if line.strip()]
             else:
                 self.samples = self._find_samples()
         else:
             self.samples = self._find_samples()
+            
+        filtered_samples = []
+        for sample in self.samples:
+            scene_dir, _, mask_path = self._sample_to_paths(sample)
+            has_deb = False
+            mask_sum = 0
+            if mask_path.exists():
+                with rasterio.open(mask_path) as src:
+                    mask = src.read(1)
+                if self.binary:
+                    mask = (mask == 1)
+                mask_sum = mask.sum()
+                has_deb = mask_sum > 0
+                
+            if self.split == 'train':
+                if mask_sum > 10 or np.random.rand() > 0.5:
+                    filtered_samples.append(sample)
+                    self.has_debris.append(has_deb)
+            else:
+                filtered_samples.append(sample)
+                self.has_debris.append(has_deb)
+                
+        self.samples = filtered_samples
         
         print(f"MARIDA {split}: {len(self.samples)} samples")
     
+    def _sample_to_paths(self, sample_name):
+        """Convert a sample name (e.g. '1-12-19_48MYU_0') to file paths.
+        
+        Returns (scene_dir, image_path, mask_path).
+        """
+        full_name = f'S2_{sample_name}'
+        # Scene dir = everything before the last underscore + digit(s)
+        # e.g. 'S2_1-12-19_48MYU_0' -> scene 'S2_1-12-19_48MYU'
+        last_underscore = full_name.rfind('_')
+        scene_name = full_name[:last_underscore]
+        
+        scene_dir = self.patches_dir / scene_name
+        image_path = scene_dir / f'{full_name}.tif'
+        mask_path = scene_dir / f'{full_name}_cl.tif'
+        return scene_dir, image_path, mask_path
+    
     def _find_samples(self):
-        """Find all patch folders."""
+        """Scan patch directories for available sub-patches (fallback when no split file)."""
         samples = []
         if self.patches_dir.exists():
             for patch_dir in self.patches_dir.iterdir():
-                if patch_dir.is_dir():
-                    # Check if has required files
-                    tif_files = list(patch_dir.glob('*.tif'))
-                    if len(tif_files) >= 11:  # Need spectral bands
-                        samples.append(patch_dir.name)
-        return samples
+                if patch_dir.is_dir() and patch_dir.name.startswith('S2_'):
+                    for tif_file in patch_dir.glob('*.tif'):
+                        name = tif_file.stem
+                        # Skip mask and confidence files
+                        if name.endswith('_cl') or name.endswith('_conf'):
+                            continue
+                        # Strip the 'S2_' prefix to match split file format
+                        sample_id = name[3:]  # Remove 'S2_'
+                        samples.append(sample_id)
+        return sorted(samples)
     
     def __len__(self):
         return len(self.samples)
     
     def __getitem__(self, idx):
         sample_name = self.samples[idx]
-        patch_dir = self.patches_dir / sample_name
+        scene_dir, image_path, mask_path = self._sample_to_paths(sample_name)
         
-        # Load bands
-        bands = []
-        for band_name in ['B01', 'B02', 'B03', 'B04', 'B05', 'B06', 'B07', 'B08', 'B8A', 'B11', 'B12']:
-            band_file = patch_dir / f'{sample_name}_{band_name}.tif'
-            if band_file.exists():
-                with rasterio.open(band_file) as src:
-                    band_data = src.read(1).astype(np.float32) * 1e-4  # Scale to 0-1
-                    bands.append(band_data)
+        # Load multi-band image
+        if image_path.exists():
+            with rasterio.open(image_path) as src:
+                image = src.read().astype(np.float32)
+                if image.max() > 100:
+                    image = image * 1e-4  # Scale DN to 0-1
+        else:
+            # Fallback: create empty image
+            image = np.zeros((12, self.image_size, self.image_size), dtype=np.float32)
         
-        if len(bands) < 11:
-            # Pad with zeros if missing bands
-            h, w = bands[0].shape if bands else (self.image_size, self.image_size)
-            while len(bands) < 12:
-                bands.append(np.zeros((h, w), dtype=np.float32))
+        image = np.nan_to_num(image, nan=0.0, posinf=1.0, neginf=0.0)
+        image = np.clip(image, 0.0, 1.0)
         
-        image = np.stack(bands, axis=-1)  # H, W, C
+        # Pad/truncate to exactly 12 bands
+        n_bands = image.shape[0]
+        if n_bands < 12:
+            padding = np.zeros((12 - n_bands, image.shape[1], image.shape[2]), dtype=np.float32)
+            image = np.concatenate([image, padding], axis=0)
+        elif n_bands > 12:
+            image = image[:12]
         
         # Load mask
-        mask_file = patch_dir / f'{sample_name}_cl.tif'
-        if mask_file.exists():
-            with rasterio.open(mask_file) as src:
+        if mask_path.exists():
+            with rasterio.open(mask_path) as src:
                 mask = src.read(1).astype(np.int64)
         else:
-            mask = np.zeros((image.shape[0], image.shape[1]), dtype=np.int64)
+            mask = np.zeros((image.shape[1], image.shape[2]), dtype=np.int64)
         
         # Binary classification: debris (class 1) vs non-debris
         if self.binary:
             mask = (mask == 1).astype(np.float32)  # Only Marine Debris class
         
-        # Apply transforms
+        # Transpose C,H,W -> H,W,C for processing
+        image = image.transpose(1, 2, 0)
+        
+        # Ensure image and mask have matching spatial dims, then resize to image_size
+        from skimage.transform import resize as ski_resize
+        img_h, img_w = image.shape[0], image.shape[1]
+        mask_h, mask_w = mask.shape[0], mask.shape[1]
+        
+        # If mask and image sizes differ, resize mask to match image
+        if (mask_h, mask_w) != (img_h, img_w):
+            mask = ski_resize(mask, (img_h, img_w), preserve_range=True, order=0).astype(mask.dtype)
+        
+        # Resize both to target image_size
+        if img_h != self.image_size or img_w != self.image_size:
+            image = ski_resize(image, (self.image_size, self.image_size, image.shape[2]),
+                               preserve_range=True).astype(np.float32)
+            mask = ski_resize(mask, (self.image_size, self.image_size),
+                              preserve_range=True, order=0).astype(mask.dtype)
+        
+        # Apply transforms (image and mask now guaranteed to have matching shapes)
         if self.transform:
             transformed = self.transform(image=image, mask=mask)
             image = transformed['image']
             mask = transformed['mask']
         
-        # Ensure correct shape
-        if image.shape[0] != self.image_size or image.shape[1] != self.image_size:
-            # Resize
-            from skimage.transform import resize
-            image = resize(image, (self.image_size, self.image_size, image.shape[2]), preserve_range=True)
-            mask = resize(mask, (self.image_size, self.image_size), preserve_range=True, order=0)
-        
         # Convert to torch tensors
         image = torch.from_numpy(image.transpose(2, 0, 1).astype(np.float32))  # C, H, W
-        mask = torch.from_numpy(mask.astype(np.float32))
+        mask = (mask > 0).astype(np.float32)
+        mask = torch.from_numpy(mask)
         
         return image, mask, sample_name
+
 
 
 class FloatingObjectsDataset(Dataset):
@@ -255,6 +326,7 @@ class FloatingObjectsDataset(Dataset):
         self.split = split
         self.transform = transform
         self.image_size = image_size
+        self.has_debris = []
         
         # Find scenes
         self.scenes = []
@@ -278,6 +350,13 @@ class FloatingObjectsDataset(Dataset):
     def _extract_patches(self, scene_path):
         """Extract patch locations from a scene."""
         try:
+            mask_path = str(scene_path).replace('.tif', '_mask.tif')
+            if os.path.exists(mask_path):
+                with rasterio.open(mask_path) as src_mask:
+                    mask_full = src_mask.read(1)
+            else:
+                mask_full = None
+
             with rasterio.open(scene_path) as src:
                 h, w = src.height, src.width
                 
@@ -285,7 +364,12 @@ class FloatingObjectsDataset(Dataset):
                 step = self.image_size
                 for y in range(0, h - self.image_size, step):
                     for x in range(0, w - self.image_size, step):
+                        has_deb = False
+                        if mask_full is not None:
+                            patch_mask = mask_full[y:y+self.image_size, x:x+self.image_size]
+                            has_deb = (patch_mask > 0).sum() > 0
                         self.patches.append((scene_path, x, y))
+                        self.has_debris.append(has_deb)
         except Exception as e:
             print(f"Warning: Could not process {scene_path}: {e}")
     
@@ -298,7 +382,11 @@ class FloatingObjectsDataset(Dataset):
         # Read image patch
         with rasterio.open(scene_path) as src:
             window = Window(x, y, self.image_size, self.image_size)
-            image = src.read(window=window).astype(np.float32) * 1e-4
+            image = src.read(window=window).astype(np.float32)
+            if image.max() > 100:
+                image = image * 1e-4
+            image = np.nan_to_num(image, nan=0.0, posinf=1.0, neginf=0.0)
+            image = np.clip(image, 0.0, 1.0)
         
         # Try to find mask
         mask_path = str(scene_path).replace('.tif', '_mask.tif')
@@ -308,17 +396,24 @@ class FloatingObjectsDataset(Dataset):
         else:
             mask = np.zeros((self.image_size, self.image_size), dtype=np.float32)
         
+        mask = (mask > 0).astype(np.float32)
+        
         # Transpose to H, W, C for albumentations
         image = image.transpose(1, 2, 0)
         
         if self.transform:
             transformed = self.transform(image=image, mask=mask)
-            image = transformed['image']
+            image = transformed['image']   # ToTensorV2 returns (C,H,W) tensor
             mask = transformed['mask']
-        
-        # Back to C, H, W
-        image = torch.from_numpy(image.transpose(2, 0, 1).astype(np.float32))
-        mask = torch.from_numpy(mask.astype(np.float32))
+            # Ensure correct types (ToTensorV2 already gives tensors)
+            if not isinstance(image, torch.Tensor):
+                image = torch.from_numpy(image.transpose(2, 0, 1).astype(np.float32))
+            if not isinstance(mask, torch.Tensor):
+                mask = torch.from_numpy(mask.astype(np.float32))
+        else:
+            # No transform applied — manually convert HWC numpy → CHW tensor
+            image = torch.from_numpy(image.transpose(2, 0, 1).astype(np.float32))
+            mask = torch.from_numpy(mask.astype(np.float32))
         
         return image, mask, f"{scene_path.stem}_{x}_{y}"
 
@@ -331,27 +426,71 @@ class RefinedFloatingObjectsDataset(Dataset):
         self.split = split
         self.transform = transform
         self.image_size = image_size
+        self.has_debris = []
         
-        self.samples = []
+        self.scenes = []
         
         # Look for regions
-        for region_dir in self.root.iterdir():
-            if region_dir.is_dir():
-                tif_files = list(region_dir.glob('*.tif'))
-                for tif_file in tif_files:
-                    if '_mask' not in tif_file.name and '_label' not in tif_file.name:
-                        self.samples.append(tif_file)
+        for tif_file in self.root.glob('*.tif'):
+            if '_qualitative' not in tif_file.name and '_mask' not in tif_file.name and '_label' not in tif_file.name:
+                self.scenes.append(tif_file)
         
-        print(f"RefinedFloatingObjects {split}: {len(self.samples)} samples")
-    
+        self.patches = []
+        for scene in self.scenes:
+            self._extract_patches(scene)
+            
+        print(f"RefinedFloatingObjects {split}: {len(self.patches)} patches from {len(self.scenes)} scenes")
+        
+    def _extract_patches(self, scene_path):
+        try:
+            mask_path = str(scene_path).replace('.tif', '_qualitative_poly.tif')
+            if not os.path.exists(mask_path):
+                mask_path = str(scene_path).replace('.tif', '_mask.tif')
+                if not os.path.exists(mask_path):
+                    mask_path = str(scene_path).replace('.tif', '_label.tif')
+
+            if os.path.exists(mask_path):
+                with rasterio.open(mask_path) as src_mask:
+                    mask_full = src_mask.read(1)
+            else:
+                mask_full = None
+
+            with rasterio.open(scene_path) as src:
+                h, w = src.height, src.width
+                step = self.image_size
+                for y in range(0, h - self.image_size, step):
+                    for x in range(0, w - self.image_size, step):
+                        mask_sum = 0
+                        if mask_full is not None:
+                            patch_mask = mask_full[y:y+self.image_size, x:x+self.image_size]
+                            mask_sum = (patch_mask > 0).sum()
+                            
+                        has_deb = mask_sum > 0
+                        
+                        if self.split == 'train':
+                            if mask_sum > 10 or np.random.rand() > 0.5:
+                                self.patches.append((scene_path, x, y))
+                                self.has_debris.append(has_deb)
+                        else:
+                            self.patches.append((scene_path, x, y))
+                            self.has_debris.append(has_deb)
+        except Exception as e:
+            print(f"Warning: Could not process {scene_path}: {e}")
+
     def __len__(self):
-        return len(self.samples)
+        return len(self.patches)
     
     def __getitem__(self, idx):
-        image_path = self.samples[idx]
+        scene_path, x, y = self.patches[idx]
         
-        with rasterio.open(image_path) as src:
-            image = src.read().astype(np.float32) * 1e-4
+        # Read image patch
+        with rasterio.open(scene_path) as src:
+            window = Window(x, y, self.image_size, self.image_size)
+            image = src.read(window=window).astype(np.float32)
+            if image.max() > 100:
+                image = image * 1e-4
+            image = np.nan_to_num(image, nan=0.0, posinf=1.0, neginf=0.0)
+            image = np.clip(image, 0.0, 1.0)
             
             # Ensure we have at least 12 bands
             if image.shape[0] < 12:
@@ -361,44 +500,36 @@ class RefinedFloatingObjectsDataset(Dataset):
                 image = image[:12]
         
         # Try to find mask
-        mask_path = str(image_path).replace('.tif', '_mask.tif')
+        mask_path = str(scene_path).replace('.tif', '_qualitative_poly.tif')
         if not os.path.exists(mask_path):
-            mask_path = str(image_path).replace('.tif', '_label.tif')
+            mask_path = str(scene_path).replace('.tif', '_mask.tif')
+            if not os.path.exists(mask_path):
+                mask_path = str(scene_path).replace('.tif', '_label.tif')
         
         if os.path.exists(mask_path):
             with rasterio.open(mask_path) as src:
-                mask = src.read(1).astype(np.float32)
+                mask = src.read(1, window=window).astype(np.float32)
         else:
-            mask = np.zeros((image.shape[1], image.shape[2]), dtype=np.float32)
+            mask = np.zeros((self.image_size, self.image_size), dtype=np.float32)
         
-        # Random crop
-        h, w = image.shape[1], image.shape[2]
-        if h > self.image_size and w > self.image_size:
-            y = np.random.randint(0, h - self.image_size)
-            x = np.random.randint(0, w - self.image_size)
-            image = image[:, y:y+self.image_size, x:x+self.image_size]
-            mask = mask[y:y+self.image_size, x:x+self.image_size]
-        else:
-            # Pad if needed
-            pad_h = max(0, self.image_size - h)
-            pad_w = max(0, self.image_size - w)
-            image = np.pad(image, ((0, 0), (0, pad_h), (0, pad_w)), mode='constant')
-            mask = np.pad(mask, ((0, pad_h), (0, pad_w)), mode='constant')
-            image = image[:, :self.image_size, :self.image_size]
-            mask = mask[:self.image_size, :self.image_size]
+        mask = (mask > 0).astype(np.float32)
         
         # Transpose for albumentations
         image_hwc = image.transpose(1, 2, 0)
         
         if self.transform:
             transformed = self.transform(image=image_hwc, mask=mask)
-            image_hwc = transformed['image']
+            image = transformed['image']   # ToTensorV2 returns (C,H,W) tensor
             mask = transformed['mask']
+            if not isinstance(image, torch.Tensor):
+                image = torch.from_numpy(image.transpose(2, 0, 1).astype(np.float32))
+            if not isinstance(mask, torch.Tensor):
+                mask = torch.from_numpy(mask.astype(np.float32))
+        else:
+            image = torch.from_numpy(image_hwc.transpose(2, 0, 1).astype(np.float32))
+            mask = torch.from_numpy(mask.astype(np.float32))
         
-        image = torch.from_numpy(image_hwc.transpose(2, 0, 1).astype(np.float32))
-        mask = torch.from_numpy(mask.astype(np.float32))
-        
-        return image, mask, image_path.stem
+        return image, mask, f"{scene_path.stem}_{x}_{y}"
 
 
 class S2ShipsDataset(Dataset):
@@ -410,8 +541,10 @@ class S2ShipsDataset(Dataset):
         self.image_size = image_size
         
         self.samples = []
-        for tif_file in self.root.rglob('*.tif'):
-            self.samples.append(tif_file)
+        self.has_debris = []
+        for npy_file in self.root.rglob('*.npy'):
+            self.samples.append(npy_file)
+            self.has_debris.append(False)
         
         print(f"S2Ships: {len(self.samples)} samples (hard negatives)")
     
@@ -419,39 +552,35 @@ class S2ShipsDataset(Dataset):
         return len(self.samples)
     
     def __getitem__(self, idx):
-        image_path = self.samples[idx]
+        npy_path = self.samples[idx]
         
-        with rasterio.open(image_path) as src:
-            image = src.read().astype(np.float32) * 1e-4
+        data_dict = np.load(npy_path, allow_pickle=True).item()
+        image = data_dict['data'].astype(np.float32)
+        if image.max() > 100:
+            image = image * 1e-4
+        image = np.nan_to_num(image, nan=0.0, posinf=1.0, neginf=0.0)
+        image = np.clip(image, 0.0, 1.0)
         
-        # Pad/truncate to 12 bands
-        if image.shape[0] < 12:
-            padding = np.zeros((12 - image.shape[0], image.shape[1], image.shape[2]), dtype=np.float32)
-            image = np.concatenate([image, padding], axis=0)
-        elif image.shape[0] > 12:
-            image = image[:12]
-        
-        # Ships are NOT debris, so mask is all zeros
-        mask = np.zeros((image.shape[1], image.shape[2]), dtype=np.float32)
+        h, w = image.shape[0], image.shape[1]
         
         # Center crop or resize
-        h, w = image.shape[1], image.shape[2]
         if h >= self.image_size and w >= self.image_size:
             y = (h - self.image_size) // 2
             x = (w - self.image_size) // 2
-            image = image[:, y:y+self.image_size, x:x+self.image_size]
-            mask = mask[y:y+self.image_size, x:x+self.image_size]
+            image = image[y:y+self.image_size, x:x+self.image_size, :]
         else:
             # Resize
             from skimage.transform import resize
-            image = resize(image.transpose(1, 2, 0), (self.image_size, self.image_size, 12), 
-                          preserve_range=True).transpose(2, 0, 1)
-            mask = np.zeros((self.image_size, self.image_size), dtype=np.float32)
+            image = resize(image, (self.image_size, self.image_size, 12), preserve_range=True)
+            
+        # Hard negative -> mask is 0
+        mask = np.zeros((self.image_size, self.image_size), dtype=np.float32)
         
-        image = torch.from_numpy(image.astype(np.float32))
+        # Transpose HWC -> CHW
+        image = torch.from_numpy(image.transpose(2, 0, 1).astype(np.float32))
         mask = torch.from_numpy(mask.astype(np.float32))
         
-        return image, mask, image_path.stem
+        return image, mask, npy_path.stem
 
 
 class PLPDataset(Dataset):
@@ -463,11 +592,13 @@ class PLPDataset(Dataset):
         self.image_size = image_size
         
         self.samples = []
+        self.has_debris = []
         year_dir = self.root / str(year)
         if year_dir.exists():
             for tif_file in year_dir.rglob('*.tif'):
                 if 'mask' not in tif_file.name.lower():
                     self.samples.append(tif_file)
+                    self.has_debris.append(False)
         
         print(f"PLP {year}: {len(self.samples)} samples")
     
@@ -478,7 +609,11 @@ class PLPDataset(Dataset):
         image_path = self.samples[idx]
         
         with rasterio.open(image_path) as src:
-            image = src.read().astype(np.float32) * 1e-4
+            image = src.read().astype(np.float32)
+            if image.max() > 100:
+                image = image * 1e-4
+            image = np.nan_to_num(image, nan=0.0, posinf=1.0, neginf=0.0)
+            image = np.clip(image, 0.0, 1.0)
         
         if image.shape[0] < 12:
             padding = np.zeros((12 - image.shape[0], image.shape[1], image.shape[2]), dtype=np.float32)
@@ -762,6 +897,10 @@ class CombinedLoss(nn.Module):
         self.dice = DiceLoss()
     
     def forward(self, pred, target):
+        pred = torch.nan_to_num(pred, nan=0.0, posinf=1.0, neginf=0.0)
+        pred = torch.clamp(pred, min=-20.0, max=20.0)
+        if torch.isnan(pred).any():
+            print("NaN detected in predictions after nan_to_num!")
         return self.bce_weight * self.bce(pred, target) + self.dice_weight * self.dice(pred, target)
 
 
@@ -776,7 +915,7 @@ class SegmentationLightningModule(pl.LightningModule):
         self,
         model_name='unet++',
         in_channels=12,
-        learning_rate=1e-3,
+        learning_rate=1e-5,
         weight_decay=1e-4,
         pos_weight=2.0,
         encoder_name='resnet34'
@@ -812,9 +951,14 @@ class SegmentationLightningModule(pl.LightningModule):
     
     def training_step(self, batch, batch_idx):
         images, masks, _ = batch
+        images = torch.nan_to_num(images, nan=0.0, posinf=1.0, neginf=0.0)
         logits = self(images)
         loss = self.criterion(logits.squeeze(1), masks)
         
+        if torch.isnan(loss):
+            print("Warning: NaN loss detected, returning None to skip batch")
+            return None
+            
         # Metrics
         preds = (torch.sigmoid(logits.squeeze(1)) > 0.5).float()
         acc = (preds == masks).float().mean()
@@ -826,9 +970,14 @@ class SegmentationLightningModule(pl.LightningModule):
     
     def validation_step(self, batch, batch_idx):
         images, masks, ids = batch
+        images = torch.nan_to_num(images, nan=0.0, posinf=1.0, neginf=0.0)
         logits = self(images)
         loss = self.criterion(logits.squeeze(1), masks)
         
+        if torch.isnan(loss):
+            print("Warning: NaN validation loss detected")
+            return None
+            
         probs = torch.sigmoid(logits.squeeze(1))
         
         self.val_outputs.append({
@@ -843,6 +992,7 @@ class SegmentationLightningModule(pl.LightningModule):
     def on_validation_epoch_end(self):
         all_probs = np.concatenate([o['probs'].flatten() for o in self.val_outputs])
         all_masks = np.concatenate([o['masks'].flatten() for o in self.val_outputs])
+        all_masks = (all_masks > 0.5).astype(int)  # Ensure discrete binary labels
         avg_loss = np.mean([o['loss'] for o in self.val_outputs])
         
         # Find optimal threshold
@@ -875,7 +1025,9 @@ class SegmentationLightningModule(pl.LightningModule):
     
     def test_step(self, batch, batch_idx):
         images, masks, ids = batch
+        images = torch.nan_to_num(images, nan=0.0, posinf=1.0, neginf=0.0)
         logits = self(images)
+        logits = torch.nan_to_num(logits, nan=0.0, posinf=1.0, neginf=0.0)
         
         probs = torch.sigmoid(logits.squeeze(1))
         
@@ -887,7 +1039,7 @@ class SegmentationLightningModule(pl.LightningModule):
     def on_test_epoch_end(self):
         all_probs = np.concatenate([o['probs'].flatten() for o in self.test_outputs])
         all_masks = np.concatenate([o['masks'].flatten() for o in self.test_outputs])
-        
+        all_masks = (all_masks > 0.5).astype(int)  # Ensure discrete binary labels        
         preds = (all_probs > self.threshold.item()).astype(int)
         
         f1 = f1_score(all_masks, preds, zero_division=0)
@@ -983,6 +1135,10 @@ class MarineDebrisDataModule(pl.LightningDataModule):
             n_val = len(flobs_ds) // 5
             n_train = len(flobs_ds) - n_val
             train_flobs, val_flobs = random_split(flobs_ds, [n_train, n_val])
+            if len(train_flobs) > 5000:
+                indices = np.random.choice(len(train_flobs), 5000, replace=False)
+                train_flobs = torch.utils.data.Subset(train_flobs, indices)
+                print(f"FloatingObjects: Limited training patches to 5000")
             train_datasets.append(train_flobs)
             val_datasets.append(val_flobs)
         
@@ -995,6 +1151,10 @@ class MarineDebrisDataModule(pl.LightningDataModule):
             n_val = len(refined_ds) // 5
             n_train = len(refined_ds) - n_val
             train_ref, val_ref = random_split(refined_ds, [n_train, n_val])
+            if len(train_ref) > 5000:
+                indices = np.random.choice(len(train_ref), 5000, replace=False)
+                train_ref = torch.utils.data.Subset(train_ref, indices)
+                print(f"RefinedFloatingObjects: Limited training patches to 5000")
             train_datasets.append(train_ref)
             val_datasets.append(val_ref)
         
@@ -1008,11 +1168,38 @@ class MarineDebrisDataModule(pl.LightningDataModule):
         # Combine datasets
         if train_datasets:
             self.train_dataset = ConcatDataset(train_datasets)
+            
+            targets = []
+            for ds in train_datasets:
+                if isinstance(ds, torch.utils.data.Subset):
+                    orig_ds = ds.dataset
+                    indices = ds.indices
+                    if hasattr(orig_ds, 'has_debris'):
+                        targets.extend([orig_ds.has_debris[i] for i in indices])
+                    else:
+                        targets.extend([False] * len(indices))
+                elif hasattr(ds, 'has_debris'):
+                    targets.extend(ds.has_debris)
+                else:
+                    targets.extend([False] * len(ds))
+                    
+            num_debris = sum(targets)
+            num_non_debris = len(targets) - num_debris
+            
+            weight_debris = len(targets) / max(num_debris, 1)
+            weight_non_debris = len(targets) / max(num_non_debris, 1)
+            
+            self.train_weights = [weight_debris if t else weight_non_debris for t in targets]
         else:
             self.train_dataset = []
+            self.train_weights = []
         
         if val_datasets:
             self.val_dataset = ConcatDataset(val_datasets)
+            if len(self.val_dataset) > 1000:
+                indices = np.random.choice(len(self.val_dataset), 1000, replace=False)
+                self.val_dataset = torch.utils.data.Subset(self.val_dataset, indices)
+                print(f"Validation dataset: Limited to 1000 patches to save memory")
         else:
             self.val_dataset = []
         
@@ -1027,10 +1214,15 @@ class MarineDebrisDataModule(pl.LightningDataModule):
         print(f"  Test:  {len(self.test_dataset)}")
     
     def train_dataloader(self):
+        sampler = torch.utils.data.WeightedRandomSampler(
+            weights=self.train_weights,
+            num_samples=len(self.train_dataset),
+            replacement=True
+        )
         return DataLoader(
             self.train_dataset,
             batch_size=self.batch_size,
-            shuffle=True,
+            sampler=sampler,
             num_workers=self.num_workers,
             pin_memory=True,
             drop_last=True
@@ -1080,7 +1272,7 @@ def parse_args():
                         help='Number of training epochs')
     parser.add_argument('--batch-size', type=int, default=16,
                         help='Batch size')
-    parser.add_argument('--lr', type=float, default=1e-3,
+    parser.add_argument('--lr', type=float, default=1e-5,
                         help='Learning rate')
     parser.add_argument('--weight-decay', type=float, default=1e-4,
                         help='Weight decay')

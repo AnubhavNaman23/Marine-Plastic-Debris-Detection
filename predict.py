@@ -302,6 +302,11 @@ class MarineDebrisPredictor:
         """Predict on a single image (may be padded/resized)."""
         c, h, w = image.shape
         
+        # Select HR bands if model requires it (B02, B03, B04, B08 = indices 1, 2, 3, 7)
+        if self.config.get('hr_only', False) and c >= 12:
+            image = image[[1, 2, 3, 7], :, :]  # Select HR bands
+            c = 4
+        
         # Pad to multiple of image_size
         pad_h = (self.image_size - h % self.image_size) % self.image_size
         pad_w = (self.image_size - w % self.image_size) % self.image_size
