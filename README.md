@@ -1,5 +1,6 @@
 # 🌊 Marine Plastic Debris Detection using Deep Learning
-
+## Demo Video
+[Click here to watch the demo](https://drive.google.com/file/d/1V8t8YPoasGMZaz92-E2FFnx60Ypf2Y4F/view?usp=sharing)
 
 ## 📋 Table of Contents
 - [Overview](#-overview)
